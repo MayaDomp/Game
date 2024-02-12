@@ -1,0 +1,215 @@
+# Import pygame and other modules
+import pygame
+import sys
+import random
+
+# Initialize pygame
+pygame.init()
+
+# Define some colors
+BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
+RED = (255, 0, 0)
+GREEN = (0, 255, 0)
+BLUE = (0, 0, 255)
+
+# Define some constants
+SCREEN_WIDTH = 800
+SCREEN_HEIGHT = 600
+TILE_SIZE = 32
+GRAVITY = 1
+JUMP_SPEED = -15
+PLAYER_SPEED = 5
+ENEMY_SPEED = 3
+BULLET_SPEED = 10
+BULLET_COOLDOWN = 500 # milliseconds
+DOOR_COOLDOWN = 1000 # milliseconds
+
+# Create the screen
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Metroidvania Game")
+
+# Create a clock to control the frame rate
+clock = pygame.time.Clock()
+
+# Load some images
+player_image = pygame.image.load("player.png")
+enemy_image = pygame.image.load("enemy.png")
+bullet_image = pygame.image.load("bullet.png")
+door_image = pygame.image.load("door.png")
+key_image = pygame.image.load("key.png")
+wall_image = pygame.image.load("wall.png")
+floor_image = pygame.image.load("floor.png")
+ladder_image = pygame.image.load("ladder.png")
+platform_image = pygame.image.load("platform.png")
+
+# Create some sounds
+shoot_sound = pygame.mixer.Sound("shoot.wav")
+jump_sound = pygame.mixer.Sound("jump.wav")
+hit_sound = pygame.mixer.Sound("hit.wav")
+door_sound = pygame.mixer.Sound("door.wav")
+key_sound = pygame.mixer.Sound("key.wav")
+
+# Create some groups to store sprites
+all_sprites = pygame.sprite.Group()
+walls = pygame.sprite.Group()
+floors = pygame.sprite.Group()
+ladders = pygame.sprite.Group()
+platforms = pygame.sprite.Group()
+enemies = pygame.sprite.Group()
+bullets = pygame.sprite.Group()
+doors = pygame.sprite.Group()
+keys = pygame.sprite.Group()
+
+# Create a class for the player sprite
+class Player(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        # Call the parent class constructor
+        super().__init__()
+
+        # Set the image and the rect attributes
+        self.image = player_image
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+
+        # Set the initial velocity and direction
+        self.change_x = 0
+        self.change_y = 0
+        self.facing_right = True
+
+        # Set the initial state
+        self.on_ground = False
+        self.on_ladder = False
+        self.has_key = False
+
+        # Set the timer for shooting bullets
+        self.bullet_timer = 0
+
+    def update(self):
+        # Move the player horizontally
+        self.rect.x += self.change_x
+
+        # Check for collision with walls
+        wall_hit_list = pygame.sprite.spritecollide(self, walls, False)
+        for wall in wall_hit_list:
+            # If moving right, set the right edge of the player to the left edge of the wall
+            if self.change_x > 0:
+                self.rect.right = wall.rect.left
+            # If moving left, set the left edge of the player to the right edge of the wall
+            elif self.change_x < 0:
+                self.rect.left = wall.rect.right
+
+        # Move the player vertically
+        self.rect.y += self.change_y
+
+        # Check for collision with walls
+        wall_hit_list = pygame.sprite.spritecollide(self, walls, False)
+        for wall in wall_hit_list:
+            # If moving down, set the bottom edge of the player to the top edge of the wall
+            if self.change_y > 0:
+                self.rect.bottom = wall.rect.top
+                self.on_ground = True
+                self.change_y = 0
+            # If moving up, set the top edge of the player to the bottom edge of the wall
+            elif self.change_y < 0:
+                self.rect.top = wall.rect.bottom
+                self.change_y = 0
+
+        # Check for collision with floors
+        floor_hit_list = pygame.sprite.spritecollide(self, floors, False)
+        for floor in floor_hit_list:
+            # If moving down, set the bottom edge of the player to the top edge of the floor
+            if self.change_y > 0:
+                self.rect.bottom = floor.rect.top
+                self.on_ground = True
+                self.change_y = 0
+            # If moving up, set the top edge of the player to the bottom edge of the floor
+            elif self.change_y < 0:
+                self.rect.top = floor.rect.bottom
+                self.change_y = 0
+
+        # Check for collision with platforms
+        platform_hit_list = pygame.sprite.spritecollide(self, platforms, False)
+        for platform in platform_hit_list:
+            # If moving down and above the platform, set the bottom edge of the player to the top edge of the platform
+            if self.change_y > 0 and self.rect.bottom < platform.rect.centery:
+                self.rect.bottom = platform.rect.top
+                self.on_ground = True
+                self.change_y = 0
+            # If moving up and below the platform, set the top edge of the player to the bottom edge of the platform
+            elif self.change_y < 0 and self.rect.top > platform.rect.centery:
+                self.rect.top = platform.rect.bottom
+                self.change_y = 0
+
+        # Check for collision with ladders
+        ladder_hit_list = pygame.sprite.spritecollide(self, ladders, False)
+        if ladder_hit_list:
+            # Set the flag for being on a ladder
+            self.on_ladder = True
+        else:
+            # Reset the flag for being on a ladder
+            self.on_ladder = False
+
+        # Check for collision with enemies
+        enemy_hit_list = pygame.sprite.spritecollide(self, enemies, False)
+        for enemy in enemy_hit_list:
+            # Play the hit sound
+            hit_sound.play()
+            # Reduce the player's health by 1
+            self.health -= 1
+            # If the player's health is zero or less, end the game
+            if self.health <= 0:
+                game_over()
+
+        # Check for collision with doors
+        door_hit_list = pygame.sprite.spritecollide(self, doors, False)
+        for door in door_hit_list:
+            # If the player has the key, open the door
+            if self.has_key:
+                # Play the door sound
+                door_sound.play()
+                # Remove the door from the groups
+                door.kill()
+                # Reset the key flag
+                self.has_key = False
+            # If the player does not have the key, prevent them from passing through the door
+            else:
+                # If moving right, set the right edge of the player to the left edge of the door
+                if self.change_x > 0:
+                    self.rect.right = door.rect.left
+                # If moving left, set the left edge of the player to the right edge of the door
+                elif self.change_x < 0:
+                    self.rect.left = door.rect.right
+                # If moving down, set the bottom edge of the player to the top edge of the door
+                if self.change_y > 0:
+                    self.rect.bottom = door.rect.top
+                # If moving up, set the top edge of the player to the bottom edge of the door
+                elif self.change_y < 0:
+                    self.rect.top = door.rect.bottom
+
+        # Check for collision with keys
+        key_hit_list = pygame.sprite.spritecollide(self, keys, False)
+        for key in key_hit_list:
+            # Play the key sound
+            key_sound.play()
+            # Remove the key from the groups
+            key.kill()
+            # Set the flag for having the key
+            self.has_key = True
+
+        # Apply gravity if not on a ladder
+        if not self.on_ladder:
+            self.change_y += GRAVITY
+
+        # Update the bullet timer
+        self.bullet_timer -= clock.get_time()
+
+    def go_left(self):
+        # Set the horizontal velocity to move left
+        self.change_x = -PLAYER_SPEED
+        # Set the facing direction to left
+        self.facing_right = False
+
+    def go_right(self):
+        # Set the horizontal velocity to move right
